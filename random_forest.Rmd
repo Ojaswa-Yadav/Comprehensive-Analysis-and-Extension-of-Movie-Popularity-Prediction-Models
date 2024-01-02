@@ -1,0 +1,238 @@
+---
+title: "Random Forest"
+output: pdf_document
+---
+
+# Imports
+```{r}
+library(tidyverse)
+library(dplyr)
+library(caret)
+library(readxl)
+library(ggplot2)
+library(corrplot)
+library(dplyr)
+library(GGally)
+library(e1071)
+library(tree)
+library(randomForest)
+
+set.seed(100)
+```
+
+```{r}
+data <- read_xlsx("2014 and 2015 CSM dataset_labeld.xlsx")
+
+data[is.na(data) | data=="Inf" | data=="NaN"] = NA
+colnames(data)[which(names(data) == "Aggregate Followers")] <- "AggregateFollowers"
+
+
+label_gross = c("Average", "Block-Buster", "Flop", "Success")
+label_rating = c("Average", "Excellent", "Good", "Poor")
+# label_gross = c("Flop", "Average", "Success", "Block-Buster")
+# data[data=="Flop"] = "1"
+# data[data=="Average"] = "2"
+# data[data=="Success"] = "3"
+# data[data=="Block-Buster"] = "4"
+# label_rating = c("Poor", "Average", "Good", "Excellent")
+# data[data=="Poor"] = "1"
+# data[data=="Average"] = "2"
+# data[data=="Good"] = "3"
+# data[data=="Excellent"] = "4"
+
+# data$GrossLabel <- as.numeric(data$GrossLabel)
+# data$RatingLabel <- as.numeric(data$RatingLabel)
+data$GrossLabel <- as.factor(data$GrossLabel)
+data$RatingLabel <- as.factor(data$RatingLabel)
+
+conv_features = c("Genre", "Budget", "Screens", "Sequel")
+social_features = c("Sentiment", "Views", "Likes", "Dislikes", "Comments", "AggregateFollowers")
+both_features = c(conv_features,social_features)
+#replace NAs with column medians
+for(i in 1:length(both_features)) {
+  data[[both_features[i]]][is.na(data[[both_features[i]]])] <- median(data[[both_features[i]]], na.rm=TRUE)
+}
+
+train_size <- floor(0.8 * nrow(data))
+train_index <- sample(seq_len(nrow(data)), size = train_size)
+
+train_conv <- data[train_index, conv_features]
+test_conv <- data[-train_index, conv_features]
+
+train_social <- data[train_index, social_features]
+test_social <- data[-train_index, social_features]
+
+train_both <- cbind(train_conv, train_social)
+test_both <- cbind(test_conv, test_social)
+
+train_gross <- data[train_index, c("GrossLabel")]
+test_gross <- data[-train_index, c("GrossLabel")]
+
+train_rating <- data[train_index, c("RatingLabel")]
+test_rating <- data[-train_index, c("RatingLabel")]
+
+```
+
+```{r}
+random_forest_classification <- function(train_data, test_data, label) {
+  model <- randomForest(as.formula(paste(label, "~ .")), data = train_data)
+  
+  predictions <- predict(model, test_data)
+
+  # predictions = round(predictions)
+  # predictions[predictions > 4] = 4
+  # predictions[predictions < 1] = 1
+  
+  return(predictions)
+}
+
+
+pred_gross_conv <- random_forest_classification(
+  cbind(train_gross, train_conv), test_conv, "GrossLabel")
+
+#train_gross$GrossLabel <- as.factor(train_gross$GrossLabel)
+pred_gross_social <- random_forest_classification(
+   cbind(train_gross, train_social), test_social, "GrossLabel")
+
+pred_gross_both <- random_forest_classification(
+  cbind(train_gross, train_both), test_both, "GrossLabel")
+
+pred_rating_conv <- random_forest_classification(
+  cbind(train_rating, train_conv), test_conv, "RatingLabel")
+
+pred_rating_social <- random_forest_classification(
+  cbind(train_rating, train_social), test_social, "RatingLabel")
+
+pred_rating_both <- random_forest_classification(
+  cbind(train_rating, train_both), test_both, "RatingLabel")
+
+```
+
+```{r}
+plot_confusion_matrix <- function(cm, title) {
+  # Convert the matrix to a data frame for plotting
+  cm_df <- as.data.frame(cm)
+  
+  # Reshape the data frame from wide to long format
+  cm_long <- reshape2::melt(cm_df, varnames = c("Predicted", "Actual"), value.name = "Frequency")
+  
+  # Plot the confusion matrix
+  ggplot(data = cm_long, aes(x = Predicted, y = Actual, fill = Frequency)) +
+    geom_tile(color = "white") +  # Use white lines to separate the tiles
+    geom_text(aes(label = Frequency), vjust = 1) +  # Add text in each tile
+    coord_fixed() + 
+    scale_fill_gradient(low = "white", high = "steelblue") +  # Gradient color for the tiles
+    labs(title = title, x = "Predicted", y = "Actual") +  # Labels for the plot
+    theme_minimal() +  # Minimal theme
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis text for better readability
+}
+
+
+cm_gross_conv <- table(Predicted = pred_gross_conv, Actual = test_gross$GrossLabel)
+plot_confusion_matrix(cm_gross_conv, "Confusion Matrix for GrossLabel\n(Conventional Features)")
+
+cm_gross_social <- table(Predicted = pred_gross_social, Actual = test_gross$GrossLabel)
+plot_confusion_matrix(cm_gross_social, "Confusion Matrix for GrossLabel\n(Social Media Features)")
+
+cm_gross_both <- table(Predicted = pred_gross_both, Actual = test_gross$GrossLabel)
+plot_confusion_matrix(cm_gross_both, "Confusion Matrix for GrossLabel\n(Full Feature Set)")
+
+cm_rating_conv <- table(Predicted = pred_rating_conv, Actual = test_rating$RatingLabel)
+plot_confusion_matrix(cm_rating_conv, "Confusion Matrix for RatingLabel\n(Conventional Features)")
+
+cm_rating_social <- table(Predicted = pred_rating_social, Actual = test_rating$RatingLabel)
+plot_confusion_matrix(cm_rating_social, "Confusion Matrix for RatingLabel\n(Social Media Features)")
+
+cm_rating_both <- table(Predicted = pred_rating_both, Actual = test_rating$RatingLabel)
+plot_confusion_matrix(cm_rating_both, "Confusion Matrix for RatingLabel\n(Full Feature Set)")
+
+```
+
+
+
+```{r}
+calculate_metrics <- function(predictions, actual) {
+  cm <- table(Predicted = predictions, Actual = actual)
+
+  # Calculate overall accuracy
+  accuracy <- sum(diag(cm)) / sum(cm)
+
+  # Initialize vectors to store precision and recall for each class
+  precision <- rep(NA, ncol(cm))
+  recall <- rep(NA, nrow(cm))
+  
+  # Calculate precision and recall for each class
+  for (i in 1:ncol(cm)) {
+    if (sum(cm[, i]) != 0) {
+      precision[i] <- cm[i, i] / sum(cm[, i])
+    }
+    if (sum(cm[i, ]) != 0) {
+      recall[i] <- cm[i, i] / sum(cm[i, ])
+    }
+  }
+
+  # Calculate F1 score
+  f1 <- ifelse((precision + recall) != 0, 2 * (precision * recall) / (precision + recall), NA)
+
+  mean_precision <- mean(precision, na.rm = TRUE)
+  mean_recall <- mean(recall, na.rm = TRUE)
+  mean_f1 <- mean(f1, na.rm = TRUE)
+
+  return(data.frame(Accuracy = accuracy, Precision = mean_precision, Recall = mean_recall, F1 = mean_f1))
+}
+
+metrics_gross_conv <- calculate_metrics(pred_gross_conv, test_gross$GrossLabel)# Print the metrics
+metrics_gross_social <- calculate_metrics(pred_gross_social, test_gross$GrossLabel)
+metrics_gross_both <- calculate_metrics(pred_gross_both, test_gross$GrossLabel)
+metrics_rating_conv <- calculate_metrics(pred_rating_conv, test_rating$RatingLabel)
+metrics_rating_social <- calculate_metrics(pred_rating_social, test_rating$RatingLabel)
+metrics_rating_both <- calculate_metrics(pred_rating_both, test_rating$RatingLabel)
+
+```
+
+
+
+```{r}
+
+metrics <- rbind(
+  cbind(Model = "GrossLabel - Conventional", metrics_gross_conv),
+  cbind(Model = "GrossLabel - Social", metrics_gross_social),
+  cbind(Model = "GrossLabel - Combined", metrics_gross_both),
+  cbind(Model = "RatingLabel - Conventional", metrics_rating_conv),
+  cbind(Model = "RatingLabel - Social", metrics_rating_social),
+  cbind(Model = "RatingLabel - Combined", metrics_rating_both)
+)
+
+print(metrics)
+
+
+
+metrics_df <- data.frame(
+  Group = rep(c("GrossLabel", "RatingLabel"), each = 3),
+  Model = c(
+    "Conventional", "Social", "Combined",
+    "Conventional", "Social", "Combined"
+  ),
+  Accuracy = c(
+    metrics_gross_conv[1, "Accuracy"], 
+    metrics_gross_social[1, "Accuracy"], 
+    metrics_gross_both[1, "Accuracy"], 
+    metrics_rating_conv[1, "Accuracy"], 
+    metrics_rating_social[1, "Accuracy"], 
+    metrics_rating_both[1, "Accuracy"]
+  )
+)
+
+metrics_df$Model <- factor(metrics_df$Model, levels = c("Social", "Conventional", "Combined"))
+
+dodge <- position_dodge(width = 0.9)
+ggplot(metrics_df, aes(x = Group, y = Accuracy, fill = Model)) +
+  geom_bar(stat = "identity", position = dodge) +
+  geom_text(aes(label = Model, y = 0.03), position = dodge, vjust = -1.1, angle=45, color = "white", size = 4) +
+  scale_fill_manual(values = c("Social" = "blue3", "Conventional" = "red3", "Combined" = "green3")) +
+  labs(title = "Model Accuracy Comparison", y = "Accuracy (%)", x = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none",  
+        panel.spacing = unit(1.5, "lines")) 
+```
