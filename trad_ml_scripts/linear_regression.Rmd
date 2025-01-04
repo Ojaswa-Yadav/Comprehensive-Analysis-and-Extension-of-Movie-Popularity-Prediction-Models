@@ -281,4 +281,3 @@ summary(model_gross_social)
 # summary(model_rating_social)
 # summary(model_rating_both)
 ```
-
