@@ -1,0 +1,29 @@
+# Data processing and analysis
+numpy==1.23.5
+pandas==1.5.3
+scikit-learn==1.2.0
+scipy==1.10.1
+
+# Data visualization
+matplotlib==3.7.1
+seaborn==0.12.2
+
+# Jupyter Notebook
+jupyterlab==3.6.5
+
+# Machine learning models
+xgboost==1.7.6
+lightgbm==3.3.5
+
+# Neural networks
+tensorflow==2.12.0
+keras==2.12.0
+
+# For dealing with missing data (if applicable)
+missingno==0.5.2
+
+# Model evaluation and metrics
+statsmodels==0.14.0
+
+# Logging and performance tracking
+tqdm==4.65.0
